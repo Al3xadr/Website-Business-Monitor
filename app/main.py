@@ -1,14 +1,13 @@
 import sys
 import requests
-import time 
-
+import time
 
 
 url = sys.argv[1]
 
 
 print("================================")
-print("       SITE MONITOR")
+print("       Website Business Monitor")
 print("================================")
 print()
 print(f"URL: {url}")
@@ -16,18 +15,22 @@ print()
 
 try:
     start = time.time()
+
     response = requests.get(url, timeout=5)
-    print(f"HTTP status: {response.status_code}")
+
     end = time.time()
+
     elapsed = end - start
+
+    print(f"HTTP status: {response.status_code}")
     print(f"Response time: {elapsed:.2f} seconds")
 
-    if response.status_code == 200:
+    if 200 <= response.status_code <= 399:
         print("Status: UP")
     else:
         print("Status: DOWN")
 
-except Exception as e:
+except requests.exceptions.RequestException as e:
     print("HTTP status: —")
     print("Status: DOWN")
-    print(f"Error: {e}")
+    print("Error: Could not connect to site")
