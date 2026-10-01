@@ -1,11 +1,11 @@
+import logging
 import time
 from datetime import datetime, timezone
 import requests
-import logging
-
 
 
 logger = logging.getLogger(__name__)
+
 
 def check_site(url, timeout=5):
     result = {

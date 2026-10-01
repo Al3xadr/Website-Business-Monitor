@@ -1,10 +1,9 @@
 import sys
 import os
 import logging
-
+from app.checker import check_site
 from dotenv import load_dotenv
 
-from checker import check_site
 
 
 logger = logging.getLogger(__name__)

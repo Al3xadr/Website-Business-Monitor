@@ -10,3 +10,5 @@
 2026-10-01 11:46:58 INFO __main__ Site is UP: https://example.com (0.23 s)
 2026-10-01 11:48:19 INFO __main__ Checking https://example.com (timeout=20.0)
 2026-10-01 11:48:20 INFO __main__ Site is UP: https://example.com (0.24 s)
+2026-10-01 12:19:49 INFO __main__ Checking https://example.com (timeout=7.0)
+2026-10-01 12:19:50 INFO __main__ Site is UP: https://example.com (0.22 s)
