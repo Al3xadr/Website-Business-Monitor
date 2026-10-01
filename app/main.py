@@ -1,12 +1,19 @@
 import sys
 import os
+import signal
 import logging
-from app.checker import check_site
+import threading
+
+from datetime import datetime
+
 from dotenv import load_dotenv
 
+from app.checker import check_site
+from app.scheduler import run_forever
+from app.state import StateTracker
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.main")
 
 
 REASON_TEXT = {
@@ -17,6 +24,7 @@ REASON_TEXT = {
 
 
 def setup_logging():
+    """Настраивает логирование: консоль + файл logs/wbm.log"""
     os.makedirs("logs", exist_ok=True)
 
     root = logging.getLogger()
@@ -37,6 +45,7 @@ def setup_logging():
 
 
 def get_timeout():
+    """Читает WBM_TIMEOUT из окружения. Возвращает float."""
     raw = os.getenv("WBM_TIMEOUT", "5")
     try:
         return float(raw)
@@ -44,30 +53,30 @@ def get_timeout():
         raise ValueError(f"WBM_TIMEOUT must be a number, got: {raw!r}")
 
 
-def main():
-    load_dotenv()
+def get_interval():
+    """
+    Читает WBM_INTERVAL из окружения.
+    Если не задан — возвращает None (одна проверка).
+    """
+    raw = os.getenv("WBM_INTERVAL")
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"WBM_INTERVAL must be a number, got: {raw!r}")
+    if value <= 0:
+        raise ValueError(f"WBM_INTERVAL must be positive, got: {value}")
+    return value
 
-    if len(sys.argv) < 2:
-        print("Usage: python app/main.py <URL>")
-        sys.exit(1)
 
-    url = sys.argv[1]
-
-    setup_logging()
-    logger.info("Checking %s (timeout=%s)", url, get_timeout())
-
-    result = check_site(url, timeout=get_timeout())
-
-    if result["ok"]:
-        logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
-    else:
-        logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
-
+def print_full_report(result):
+    """Полный отчёт для пользователя."""
     print("======================")
     print("     Website Business Monitor")
     print("======================")
     print()
-    print(f"URL: {url}")
+    print(f"URL: {result['url']}")
     print()
 
     if result["status_code"] is not None:
@@ -83,6 +92,119 @@ def main():
 
     print()
     print(f"Status: {'UP' if result['ok'] else 'DOWN'}")
+    print()
+
+
+def print_short_line(result):
+    """Короткая строка для цикла мониторинга."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    status = "UP  " if result["ok"] else "DOWN"
+
+    if result["ok"]:
+        print(f"[{ts}] {status} {result['url']} ({result['response_time']:.2f}s)")
+    else:
+        print(f"[{ts}] {status} {result['url']} ({result['reason']})")
+
+
+def make_check_callback(url, timeout, first_run=False):
+    """
+    Возвращает callback для scheduler.
+
+    - Первая итерация: полный отчёт
+    - Смена состояния: событие 🔴 / 🟢
+    - Без изменений: тихая короткая строка
+    """
+    state = {"first": first_run}
+    tracker = StateTracker()
+
+    def callback():
+        result = check_site(url, timeout=timeout)
+        current = "UP" if result["ok"] else "DOWN"
+
+        changed, previous = tracker.update(current)
+
+        if state["first"]:
+            if result["ok"]:
+                logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
+            else:
+                logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
+            print_full_report(result)
+            state["first"] = False
+            return
+
+        if changed:
+            if current == "DOWN":
+                logger.error(
+                    "TRANSITION %s -> %s: %s (reason: %s)",
+                    previous, current, url, result["reason"],
+                )
+                print()
+                print(f"🔴 ALERT: {url} is DOWN (was {previous}) — {result['reason']}")
+                print()
+            else:
+                logger.info(
+                    "TRANSITION %s -> %s: %s",
+                    previous, current, url,
+                )
+                print()
+                print(f"🟢 RECOVERED: {url} is UP (was {previous})")
+                print()
+        else:
+            logger.debug("Site is UP: %s (%.2f s)", url, result["response_time"])
+            print_short_line(result)
+
+    return callback
+
+
+def main():
+    load_dotenv()
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m app.main <URL>")
+        sys.exit(1)
+
+    url = sys.argv[1]
+
+    setup_logging()
+
+    timeout = get_timeout()
+    interval = get_interval()
+
+    if interval is None:
+        # Режим «одна проверка»
+        logger.info("Checking %s (timeout=%s)", url, timeout)
+        result = check_site(url, timeout=timeout)
+
+        if result["ok"]:
+            logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
+        else:
+            logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
+
+        print_full_report(result)
+        return
+
+    # Режим мониторинга
+    logger.info("Starting monitor: %s (timeout=%s, interval=%s)",
+                url, timeout, interval)
+
+    stop_event = threading.Event()
+
+    def handle_signal(signum, frame):
+        sig_name = signal.Signals(signum).name
+        print()
+        logger.info("Received %s, stopping...", sig_name)
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    callback = make_check_callback(url, timeout, first_run=True)
+
+    try:
+        run_forever(callback, interval, stop_event=stop_event)
+    except KeyboardInterrupt:
+        logger.info("Interrupted")
+        stop_event.set()
 
 
 if __name__ == "__main__":
