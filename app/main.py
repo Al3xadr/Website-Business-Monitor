@@ -1,6 +1,12 @@
 import sys
-import requests
-import time
+from checker import check_site
+
+
+REASON_TEXT = {
+    "OK": "Site is reachable",
+    "TIMEOUT": "Connection timeout",
+    "CONNECTION_ERROR": "Could not connect to site",
+}
 
 
 if len(sys.argv) < 2:
@@ -9,7 +15,6 @@ if len(sys.argv) < 2:
 
 url = sys.argv[1]
 
-
 print("======================")
 print("     Website Business Monitor")
 print("======================")
@@ -17,30 +22,19 @@ print()
 print(f"URL: {url}")
 print()
 
-try:
-    start = time.time()
+result = check_site(url)
 
-    response = requests.get(url, timeout=5)
+if result["status_code"] is not None:
+    print(f"HTTP status: {result['status_code']}")
 
-    end = time.time()
+if result["response_time"] is not None:
+    print(f"Response time: {result['response_time']:.2f} seconds")
 
-    elapsed = end - start
+if result["reason"] and result["reason"] not in REASON_TEXT:
+    # HTTP_404 и подобные
+    print(f"Reason: {result['reason']}")
+elif result["reason"]:
+    print(f"Reason: {REASON_TEXT[result['reason']]}")
 
-    print(f"HTTP status: {response.status_code}")
-    print(f"Response time: {elapsed:.2f} seconds")
-    print()
-
-    if 200 <= response.status_code <= 399:
-        print("Status: UP")
-    else:
-        print("Status: DOWN")
-
-except requests.exceptions.Timeout:
-    print("ERROR: Connection timeout")
-    print()
-    print("Status: DOWN")
-
-except requests.exceptions.ConnectionError:
-    print("ERROR: Could not connect to site")
-    print()
-    print("Status: DOWN")
+print()
+print(f"Status: {'UP' if result['ok'] else 'DOWN'}")
