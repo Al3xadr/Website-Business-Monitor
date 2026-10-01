@@ -41,3 +41,19 @@
 2026-10-01 12:59:27 INFO app.main TRANSITION DOWN -> UP: http://localhost:8000
 2026-10-01 13:00:32 INFO app.main Received SIGTERM, stopping...
 2026-10-01 13:00:32 INFO app.scheduler Scheduler stopped after 33 iteration(s)
+2026-10-01 15:16:57 INFO app.main Checking https://example.com (timeout=7.0)
+2026-10-01 15:16:57 INFO app.main Site is UP: https://example.com (0.25 s)
+2026-10-01 15:17:04 INFO app.main Checking https://google.com (timeout=7.0)
+2026-10-01 15:17:05 INFO app.main Site is UP: https://google.com (0.56 s)
+2026-10-01 15:17:15 INFO app.main Starting monitor: https://example.com (timeout=7.0, interval=3.0)
+2026-10-01 15:17:15 INFO app.scheduler Scheduler started (interval=3.0 s)
+2026-10-01 15:17:16 INFO app.main Site is UP: https://example.com (0.23 s)
+2026-10-01 15:17:20 INFO app.main Received SIGINT, stopping...
+2026-10-01 15:17:20 INFO app.scheduler Scheduler stopped after 2 iteration(s)
+2026-10-01 15:17:41 INFO app.main Starting monitor: http://localhost:8000 (timeout=7.0, interval=3.0)
+2026-10-01 15:17:41 INFO app.scheduler Scheduler started (interval=3.0 s)
+2026-10-01 15:17:49 ERROR app.main Site is DOWN: http://localhost:8000 (reason: TIMEOUT)
+2026-10-01 15:18:29 INFO app.main TRANSITION DOWN -> UP: http://localhost:8000
+2026-10-01 15:18:41 ERROR app.main TRANSITION UP -> DOWN: http://localhost:8000 (reason: CONNECTION_ERROR)
+2026-10-01 15:19:43 INFO app.main Received SIGINT, stopping...
+2026-10-01 15:19:43 INFO app.scheduler Scheduler stopped after 29 iteration(s)

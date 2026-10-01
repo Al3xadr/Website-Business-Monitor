@@ -2,7 +2,7 @@ import sys
 import os
 import signal
 import logging
-import threading
+import asyncio
 
 from datetime import datetime
 
@@ -45,7 +45,6 @@ def setup_logging():
 
 
 def get_timeout():
-    """Читает WBM_TIMEOUT из окружения. Возвращает float."""
     raw = os.getenv("WBM_TIMEOUT", "5")
     try:
         return float(raw)
@@ -54,10 +53,6 @@ def get_timeout():
 
 
 def get_interval():
-    """
-    Читает WBM_INTERVAL из окружения.
-    Если не задан — возвращает None (одна проверка).
-    """
     raw = os.getenv("WBM_INTERVAL")
     if raw is None or raw == "":
         return None
@@ -71,7 +66,6 @@ def get_interval():
 
 
 def print_full_report(result):
-    """Полный отчёт для пользователя."""
     print("======================")
     print("     Website Business Monitor")
     print("======================")
@@ -96,7 +90,6 @@ def print_full_report(result):
 
 
 def print_short_line(result):
-    """Короткая строка для цикла мониторинга."""
     ts = datetime.now().strftime("%H:%M:%S")
     status = "UP  " if result["ok"] else "DOWN"
 
@@ -108,7 +101,7 @@ def print_short_line(result):
 
 def make_check_callback(url, timeout, first_run=False):
     """
-    Возвращает callback для scheduler.
+    Возвращает async callback для scheduler.
 
     - Первая итерация: полный отчёт
     - Смена состояния: событие 🔴 / 🟢
@@ -117,8 +110,8 @@ def make_check_callback(url, timeout, first_run=False):
     state = {"first": first_run}
     tracker = StateTracker()
 
-    def callback():
-        result = check_site(url, timeout=timeout)
+    async def callback():
+        result = await check_site(url, timeout=timeout)
         current = "UP" if result["ok"] else "DOWN"
 
         changed, previous = tracker.update(current)
@@ -156,7 +149,7 @@ def make_check_callback(url, timeout, first_run=False):
     return callback
 
 
-def main():
+async def main():
     load_dotenv()
 
     if len(sys.argv) < 2:
@@ -173,7 +166,7 @@ def main():
     if interval is None:
         # Режим «одна проверка»
         logger.info("Checking %s (timeout=%s)", url, timeout)
-        result = check_site(url, timeout=timeout)
+        result = await check_site(url, timeout=timeout)
 
         if result["ok"]:
             logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
@@ -187,25 +180,32 @@ def main():
     logger.info("Starting monitor: %s (timeout=%s, interval=%s)",
                 url, timeout, interval)
 
-    stop_event = threading.Event()
+    stop_event = asyncio.Event()
 
-    def handle_signal(signum, frame):
+    loop = asyncio.get_running_loop()
+
+    def handle_signal(signum, frame=None):
         sig_name = signal.Signals(signum).name
         print()
         logger.info("Received %s, stopping...", sig_name)
         stop_event.set()
 
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_signal, sig)
 
     callback = make_check_callback(url, timeout, first_run=True)
 
     try:
-        run_forever(callback, interval, stop_event=stop_event)
-    except KeyboardInterrupt:
-        logger.info("Interrupted")
+        await run_forever(callback, interval, stop_event=stop_event)
+    except asyncio.CancelledError:
+        logger.info("Cancelled")
         stop_event.set()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # fallback: если сигнал не перехватился
+        print()
+        print("Interrupted")
