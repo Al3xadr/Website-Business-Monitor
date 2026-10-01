@@ -7,7 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def check_site(url):
+def check_site(url, timeout=5):
     result = {
         "url": url,
         "ok": False,
@@ -19,7 +19,7 @@ def check_site(url):
 
     try:
         start = time.time()
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=timeout)
         end = time.time()
 
         result["status_code"] = response.status_code

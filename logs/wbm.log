@@ -1,2 +1,8 @@
 2026-10-01 11:05:50 INFO __main__ Checking https://example.com
 2026-10-01 11:05:50 INFO __main__ Site is UP: https://example.com (0.27 s)
+2026-10-01 11:18:14 INFO __main__ Checking https://example.com
+2026-10-01 11:18:14 INFO __main__ Checking https://example.com (timeout=5.0)
+2026-10-01 11:18:15 INFO __main__ Site is UP: https://example.com (0.23 s)
+2026-10-01 11:21:17 INFO __main__ Checking https://example.com
+2026-10-01 11:21:17 INFO __main__ Checking https://example.com (timeout=5.0)
+2026-10-01 11:21:17 INFO __main__ Site is UP: https://example.com (0.22 s)

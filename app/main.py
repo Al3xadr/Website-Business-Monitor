@@ -37,6 +37,16 @@ def setup_logging():
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
 
+def get_timeout():
+    """
+    Читает WBM_TIMEOUT из переменных окружения.
+    Возвращает float. По умолчанию — 5 секунд.
+    """
+    raw = os.getenv("WBM_TIMEOUT", "5")
+    try:
+        return float(raw)
+    except ValueError:
+        raise ValueError(f"WBM_TIMEOUT must be a number, got: {raw!r}")
 
 def main():
     if len(sys.argv) < 2:
@@ -48,7 +58,10 @@ def main():
     setup_logging()
     logger.info("Checking %s", url)
 
-    result = check_site(url)
+    timeout = get_timeout()
+    logger.info("Checking %s (timeout=%s)", url, timeout)
+
+    result = check_site(url, timeout=timeout)
 
     if result["ok"]:
         logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
