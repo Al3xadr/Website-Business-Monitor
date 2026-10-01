@@ -82,3 +82,13 @@ def test_result_has_common_fields(mock_get):
     assert "reason" in result
     assert "checked_at" in result
     assert result["url"] == "https://example.com"
+
+
+@patch("app.checker.requests.get")
+def test_custom_timeout_passed_to_requests(mock_get):
+    fake_response = Mock()
+    fake_response.status_code = 200
+    mock_get.return_value = fake_response
+    check_site("https://example.com", timeout=10)
+
+    mock_get.assert_called_once_with("https://example.com", timeout=10)
