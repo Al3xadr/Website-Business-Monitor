@@ -1,53 +1,62 @@
-import requests
-from unittest.mock import patch, Mock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import aiohttp
 
 from app.checker import check_site
 
 
-@patch("app.checker.requests.get")
-def test_http_200(mock_get):
-    fake_response = Mock()
-    fake_response.status_code = 200
-    mock_get.return_value = fake_response
+def make_fake_response(status):
+    """
+    Возвращает контекстный менеджер, имитирующий aiohttp-ответ.
+    """
+    response = MagicMock()
+    response.status = status
 
-    result = check_site("https://example.com")
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=response)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    return cm
+
+
+async def test_http_200():
+    fake_session = MagicMock()
+    fake_session.get.return_value = make_fake_response(200)
+
+    result = await check_site("https://example.com", session=fake_session)
 
     assert result["ok"] is True
     assert result["status_code"] == 200
     assert result["reason"] == "OK"
 
 
-@patch("app.checker.requests.get")
-def test_http_404(mock_get):
-    fake_response = Mock()
-    fake_response.status_code = 404
-    mock_get.return_value = fake_response
+async def test_http_404():
+    fake_session = MagicMock()
+    fake_session.get.return_value = make_fake_response(404)
 
-    result = check_site("https://example.com")
+    result = await check_site("https://example.com", session=fake_session)
 
     assert result["ok"] is False
     assert result["status_code"] == 404
     assert result["reason"] == "HTTP_404"
 
 
-@patch("app.checker.requests.get")
-def test_http_500(mock_get):
-    fake_response = Mock()
-    fake_response.status_code = 500
-    mock_get.return_value = fake_response
+async def test_http_500():
+    fake_session = MagicMock()
+    fake_session.get.return_value = make_fake_response(500)
 
-    result = check_site("https://example.com")
+    result = await check_site("https://example.com", session=fake_session)
 
     assert result["ok"] is False
     assert result["status_code"] == 500
     assert result["reason"] == "HTTP_500"
 
 
-@patch("app.checker.requests.get")
-def test_timeout(mock_get):
-    mock_get.side_effect = requests.exceptions.Timeout
+async def test_timeout():
+    fake_session = MagicMock()
+    fake_session.get.side_effect = asyncio.TimeoutError()
 
-    result = check_site("https://example.com")
+    result = await check_site("https://example.com", session=fake_session)
 
     assert result["ok"] is False
     assert result["status_code"] is None
@@ -55,11 +64,13 @@ def test_timeout(mock_get):
     assert result["reason"] == "TIMEOUT"
 
 
-@patch("app.checker.requests.get")
-def test_connection_error(mock_get):
-    mock_get.side_effect = requests.exceptions.ConnectionError
+async def test_connection_error():
+    fake_session = MagicMock()
+    fake_session.get.side_effect = aiohttp.ClientConnectorError(
+        connection_key=MagicMock(), os_error=OSError("no route")
+    )
 
-    result = check_site("https://example.com")
+    result = await check_site("https://example.com", session=fake_session)
 
     assert result["ok"] is False
     assert result["status_code"] is None
@@ -67,13 +78,11 @@ def test_connection_error(mock_get):
     assert result["reason"] == "CONNECTION_ERROR"
 
 
-@patch("app.checker.requests.get")
-def test_result_has_common_fields(mock_get):
-    fake_response = Mock()
-    fake_response.status_code = 200
-    mock_get.return_value = fake_response
+async def test_result_has_common_fields():
+    fake_session = MagicMock()
+    fake_session.get.return_value = make_fake_response(200)
 
-    result = check_site("https://example.com")
+    result = await check_site("https://example.com", session=fake_session)
 
     assert "url" in result
     assert "ok" in result
@@ -84,11 +93,15 @@ def test_result_has_common_fields(mock_get):
     assert result["url"] == "https://example.com"
 
 
-@patch("app.checker.requests.get")
-def test_custom_timeout_passed_to_requests(mock_get):
-    fake_response = Mock()
-    fake_response.status_code = 200
-    mock_get.return_value = fake_response
-    check_site("https://example.com", timeout=10)
+async def test_custom_timeout_passed_to_session():
+    fake_session = MagicMock()
+    fake_session.get.return_value = make_fake_response(200)
 
-    mock_get.assert_called_once_with("https://example.com", timeout=10)
+    await check_site("https://example.com", timeout=10, session=fake_session)
+
+    fake_session.get.assert_called_once()
+    call_args = fake_session.get.call_args
+    assert call_args.args[0] == "https://example.com"
+
+    timeout_arg = call_args.kwargs["timeout"]
+    assert timeout_arg.total == 10
