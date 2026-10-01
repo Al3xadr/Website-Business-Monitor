@@ -57,3 +57,5 @@
 2026-10-01 15:18:41 ERROR app.main TRANSITION UP -> DOWN: http://localhost:8000 (reason: CONNECTION_ERROR)
 2026-10-01 15:19:43 INFO app.main Received SIGINT, stopping...
 2026-10-01 15:19:43 INFO app.scheduler Scheduler stopped after 29 iteration(s)
+2026-10-01 15:34:33 INFO app.main Checking https://example.com (timeout=7.0)
+2026-10-01 15:34:33 INFO app.main Site is UP: https://example.com (0.22 s)
