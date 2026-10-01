@@ -1,5 +1,6 @@
 import sys
 import logging
+import os
 
 from checker import check_site
 
@@ -14,6 +15,29 @@ REASON_TEXT = {
 }
 
 
+def setup_logging():
+    """Настраивает логирование: консоль + файл logs/wbm.log"""
+    os.makedirs("logs", exist_ok=True)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Handler для консоли
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    # Handler для файла
+    file_handler = logging.FileHandler("logs/wbm.log", encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python app/main.py <URL>")
@@ -21,12 +45,7 @@ def main():
 
     url = sys.argv[1]
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
+    setup_logging()
     logger.info("Checking %s", url)
 
     result = check_site(url)
@@ -36,7 +55,7 @@ def main():
     else:
         logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
 
-    # ... вывод для пользователя (print) остаётся как был
+    # ... остальной print-вывод для пользователя
 
 
 if __name__ == "__main__":
