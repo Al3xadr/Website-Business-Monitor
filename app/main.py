@@ -4,10 +4,13 @@ import signal
 import logging
 import threading
 
+from datetime import datetime
+
 from dotenv import load_dotenv
 
 from app.checker import check_site
 from app.scheduler import run_forever
+from app.state import StateTracker
 
 
 logger = logging.getLogger("app.main")
@@ -68,7 +71,7 @@ def get_interval():
 
 
 def print_full_report(result):
-    """Полный отчёт для пользователя (как раньше)."""
+    """Полный отчёт для пользователя."""
     print("======================")
     print("     Website Business Monitor")
     print("======================")
@@ -94,8 +97,6 @@ def print_full_report(result):
 
 def print_short_line(result):
     """Короткая строка для цикла мониторинга."""
-    from datetime import datetime
-
     ts = datetime.now().strftime("%H:%M:%S")
     status = "UP  " if result["ok"] else "DOWN"
 
@@ -107,23 +108,49 @@ def print_short_line(result):
 
 def make_check_callback(url, timeout, first_run=False):
     """
-    Возвращает callback без аргументов для scheduler.
-    При первом запуске печатает полный отчёт, дальше — короткую строку.
+    Возвращает callback для scheduler.
+
+    - Первая итерация: полный отчёт
+    - Смена состояния: событие 🔴 / 🟢
+    - Без изменений: тихая короткая строка
     """
     state = {"first": first_run}
+    tracker = StateTracker()
 
     def callback():
         result = check_site(url, timeout=timeout)
+        current = "UP" if result["ok"] else "DOWN"
 
-        if result["ok"]:
-            logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
-        else:
-            logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
+        changed, previous = tracker.update(current)
 
         if state["first"]:
+            if result["ok"]:
+                logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
+            else:
+                logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
             print_full_report(result)
             state["first"] = False
+            return
+
+        if changed:
+            if current == "DOWN":
+                logger.error(
+                    "TRANSITION %s -> %s: %s (reason: %s)",
+                    previous, current, url, result["reason"],
+                )
+                print()
+                print(f"🔴 ALERT: {url} is DOWN (was {previous}) — {result['reason']}")
+                print()
+            else:
+                logger.info(
+                    "TRANSITION %s -> %s: %s",
+                    previous, current, url,
+                )
+                print()
+                print(f"🟢 RECOVERED: {url} is UP (was {previous})")
+                print()
         else:
+            logger.debug("Site is UP: %s (%.2f s)", url, result["response_time"])
             print_short_line(result)
 
     return callback
@@ -144,7 +171,7 @@ def main():
     interval = get_interval()
 
     if interval is None:
-        # Режим «одна проверка» — как раньше
+        # Режим «одна проверка»
         logger.info("Checking %s (timeout=%s)", url, timeout)
         result = check_site(url, timeout=timeout)
 
@@ -162,19 +189,20 @@ def main():
 
     stop_event = threading.Event()
 
-    def handle_sigint(signum, frame):
+    def handle_signal(signum, frame):
+        sig_name = signal.Signals(signum).name
         print()
-        logger.info("Received SIGINT, stopping...")
+        logger.info("Received %s, stopping...", sig_name)
         stop_event.set()
 
-    signal.signal(signal.SIGINT, handle_sigint)
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
 
     callback = make_check_callback(url, timeout, first_run=True)
 
     try:
         run_forever(callback, interval, stop_event=stop_event)
     except KeyboardInterrupt:
-        # На случай, если сигнал не перехватился
         logger.info("Interrupted")
         stop_event.set()
 
