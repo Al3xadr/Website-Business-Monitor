@@ -59,3 +59,41 @@
 2026-10-01 15:19:43 INFO app.scheduler Scheduler stopped after 29 iteration(s)
 2026-10-01 15:34:33 INFO app.main Checking https://example.com (timeout=7.0)
 2026-10-01 15:34:33 INFO app.main Site is UP: https://example.com (0.22 s)
+2026-10-02 11:08:31 INFO app.main Checking https://google.com (timeout=7.0)
+2026-10-02 11:08:32 INFO app.main Site is UP: https://google.com (0.45 s)
+2026-10-02 11:09:17 INFO app.main Checking http://localhost:8000 (timeout=7.0)
+2026-10-02 11:09:17 INFO app.main Site is UP: http://localhost:8000 (0.00 s)
+2026-10-02 11:09:28 INFO app.main Checking http://localhost:8000 (timeout=7.0)
+2026-10-02 11:09:28 INFO app.main Site is UP: http://localhost:8000 (0.01 s)
+2026-10-02 11:13:49 INFO app.main Checking http://localhost:8000 (timeout=7.0)
+2026-10-02 11:13:49 INFO app.main Site is UP: http://localhost:8000 (0.01 s)
+2026-10-02 11:14:08 INFO app.main Starting monitor: http://localhost:8000 (timeout=7.0, interval=10.0)
+2026-10-02 11:14:08 INFO app.scheduler Scheduler started (interval=10.0 s)
+2026-10-02 11:14:08 INFO app.main Site is UP: http://localhost:8000 (0.01 s)
+2026-10-02 11:15:07 INFO app.main Received SIGINT, stopping...
+2026-10-02 11:15:07 INFO app.scheduler Scheduler stopped after 6 iteration(s)
+2026-10-02 11:28:45 INFO app.main Starting monitor: http://localhost:8000 (timeout=7.0, interval=10.0)
+2026-10-02 11:28:45 INFO app.scheduler Scheduler started (interval=10.0 s)
+2026-10-02 11:28:45 INFO app.main Site is UP: http://localhost:8000 (0.01 s)
+2026-10-02 11:29:03 INFO app.main Received SIGINT, stopping...
+2026-10-02 11:29:03 INFO app.scheduler Scheduler stopped after 2 iteration(s)
+2026-10-02 11:29:11 INFO app.main Starting monitor: http://localhost:8000 (timeout=7.0, interval=10.0)
+2026-10-02 11:29:11 INFO app.scheduler Scheduler started (interval=10.0 s)
+2026-10-02 11:29:11 INFO app.main Site is UP: http://localhost:8000 (0.01 s)
+2026-10-02 11:29:21 ERROR app.main TRANSITION UP -> DOWN: http://localhost:8000 (reason: CONNECTION_ERROR)
+2026-10-02 11:29:21 INFO app.notifier Telegram sent: 🔴 ALERT: http://localhost:8000 is DOWN (was UP) — CONNECTION_ERROR
+2026-10-02 11:29:31 INFO app.main TRANSITION DOWN -> UP: http://localhost:8000
+2026-10-02 11:29:31 INFO app.notifier Telegram sent: 🟢 RECOVERED: http://localhost:8000 is UP (was DOWN)
+2026-10-02 11:29:56 INFO app.main Received SIGINT, stopping...
+2026-10-02 11:29:56 INFO app.scheduler Scheduler stopped after 5 iteration(s)
+2026-10-02 11:29:59 INFO app.main Starting monitor: http://localhost:8000 (timeout=7.0, interval=10.0)
+2026-10-02 11:29:59 INFO app.scheduler Scheduler started (interval=10.0 s)
+2026-10-02 11:29:59 INFO app.main Site is UP: http://localhost:8000 (0.01 s)
+2026-10-02 11:30:59 ERROR app.main TRANSITION UP -> DOWN: http://localhost:8000 (reason: CONNECTION_ERROR)
+2026-10-02 11:31:00 INFO app.notifier Telegram sent: 🔴 ALERT: http://localhost:8000 is DOWN (was UP) — CONNECTION_ERROR
+2026-10-02 11:31:10 INFO app.main TRANSITION DOWN -> UP: http://localhost:8000
+2026-10-02 11:31:10 INFO app.notifier Telegram sent: 🟢 RECOVERED: http://localhost:8000 is UP (was DOWN)
+2026-10-02 11:31:40 ERROR app.main TRANSITION UP -> DOWN: http://localhost:8000 (reason: CONNECTION_ERROR)
+2026-10-02 11:31:40 INFO app.notifier Telegram sent: 🔴 ALERT: http://localhost:8000 is DOWN (was UP) — CONNECTION_ERROR
+2026-10-02 11:31:41 INFO app.main Received SIGINT, stopping...
+2026-10-02 11:31:41 INFO app.scheduler Scheduler stopped after 11 iteration(s)

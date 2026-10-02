@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from app.checker import check_site
 from app.scheduler import run_forever
 from app.state import StateTracker
+from app.notifier import TelegramNotifier
 
 
 logger = logging.getLogger("app.main")
@@ -99,14 +100,7 @@ def print_short_line(result):
         print(f"[{ts}] {status} {result['url']} ({result['reason']})")
 
 
-def make_check_callback(url, timeout, first_run=False):
-    """
-    Возвращает async callback для scheduler.
-
-    - Первая итерация: полный отчёт
-    - Смена состояния: событие 🔴 / 🟢
-    - Без изменений: тихая короткая строка
-    """
+def make_check_callback(url, timeout, notifier, first_run=False):
     state = {"first": first_run}
     tracker = StateTracker()
 
@@ -127,21 +121,22 @@ def make_check_callback(url, timeout, first_run=False):
 
         if changed:
             if current == "DOWN":
+                msg = f"🔴 ALERT: {url} is DOWN (was {previous}) — {result['reason']}"
                 logger.error(
                     "TRANSITION %s -> %s: %s (reason: %s)",
                     previous, current, url, result["reason"],
                 )
                 print()
-                print(f"🔴 ALERT: {url} is DOWN (was {previous}) — {result['reason']}")
+                print(msg)
                 print()
+                await notifier.send(msg)
             else:
-                logger.info(
-                    "TRANSITION %s -> %s: %s",
-                    previous, current, url,
-                )
+                msg = f"🟢 RECOVERED: {url} is UP (was {previous})"
+                logger.info("TRANSITION %s -> %s: %s", previous, current, url)
                 print()
-                print(f"🟢 RECOVERED: {url} is UP (was {previous})")
+                print(msg)
                 print()
+                await notifier.send(msg)
         else:
             logger.debug("Site is UP: %s (%.2f s)", url, result["response_time"])
             print_short_line(result)
@@ -177,11 +172,14 @@ async def main():
         return
 
     # Режим мониторинга
-    logger.info("Starting monitor: %s (timeout=%s, interval=%s)",
-                url, timeout, interval)
+    logger.info(
+        "Starting monitor: %s (timeout=%s, interval=%s)",
+        url, timeout, interval,
+    )
+
+    notifier = TelegramNotifier()
 
     stop_event = asyncio.Event()
-
     loop = asyncio.get_running_loop()
 
     def handle_signal(signum, frame=None):
@@ -193,19 +191,20 @@ async def main():
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, handle_signal, sig)
 
-    callback = make_check_callback(url, timeout, first_run=True)
+    callback = make_check_callback(url, timeout, notifier, first_run=True)
 
     try:
         await run_forever(callback, interval, stop_event=stop_event)
     except asyncio.CancelledError:
         logger.info("Cancelled")
         stop_event.set()
+    finally:
+        await notifier.close()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # fallback: если сигнал не перехватился
         print()
         print("Interrupted")
