@@ -58,6 +58,52 @@ def print_short_line(result):
         print(f"[{ts}] {status} {result['url']} ({result['reason']})")
 
 
+
+def format_alert_message(result):
+    """Форматирует сообщение о падении для Telegram."""
+    dt = datetime.fromisoformat(result["checked_at"])
+    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "🔴 Website DOWN",
+        "",
+        f"URL: {result['url']}",
+    ]
+
+    if result["status_code"] is not None:
+        lines.append(f"HTTP status: {result['status_code']}")
+
+    lines.append(f"Reason: {result['reason']}")
+    lines.append(f"Time: {time_str}")
+
+    return "\n".join(lines)
+
+
+def format_recovered_message(result):
+    """Форматирует сообщение о восстановлении для Telegram."""
+    from datetime import datetime
+
+    dt = datetime.fromisoformat(result["checked_at"])
+    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "🟢 Website RECOVERED",
+        "",
+        f"URL: {result['url']}",
+    ]
+
+    if result["status_code"] is not None:
+        lines.append(f"HTTP status: {result['status_code']}")
+
+    if result["response_time"] is not None:
+        lines.append(f"Response time: {result['response_time']:.2f} seconds")
+
+    lines.append(f"Time: {time_str}")
+
+    return "\n".join(lines)
+
+
+
 def make_check_callback(url, timeout, notifier, first_run=False):
     state = {"first": first_run}
     tracker = StateTracker()
@@ -79,25 +125,22 @@ def make_check_callback(url, timeout, notifier, first_run=False):
 
         if changed:
             if current == "DOWN":
-                msg = f"🔴 ALERT: {url} is DOWN (was {previous}) — {result['reason']}"
+                msg = format_alert_message(result)
                 logger.error(
-                    "TRANSITION %s -> %s: %s (reason: %s)",
-                    previous, current, url, result["reason"],
+                "TRANSITION %s -> %s: %s (reason: %s)",
+                previous, current, url, result["reason"],
                 )
-                print()
-                print(msg)
-                print()
-                await notifier.send(msg)
-            else:
-                msg = f"🟢 RECOVERED: {url} is UP (was {previous})"
-                logger.info("TRANSITION %s -> %s: %s", previous, current, url)
-                print()
-                print(msg)
-                print()
-                await notifier.send(msg)
+            print()
+            print(msg)
+            print()
+            await notifier.send(msg)
         else:
-            logger.debug("Site is UP: %s (%.2f s)", url, result["response_time"])
-            print_short_line(result)
+            msg = format_recovered_message(result)
+            logger.info("TRANSITION %s -> %s: %s", previous, current, url)
+            print()
+            print(msg)
+            print()
+        await notifier.send(msg)
 
     return callback
 

@@ -5,4 +5,5 @@ __pycache__/
 .DS_Store
 
 logs/*.log
-logs/*.log.*.vscode/
+logs/*.log.*
+.vscode/
