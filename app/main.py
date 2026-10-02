@@ -12,7 +12,7 @@ from app.checker import check_site
 from app.scheduler import run_forever
 from app.state import StateTracker
 from app.notifier import TelegramNotifier
-
+from app.config import setup_logging, get_timeout, get_interval
 
 logger = logging.getLogger("app.main")
 
@@ -22,48 +22,6 @@ REASON_TEXT = {
     "TIMEOUT": "Connection timeout",
     "CONNECTION_ERROR": "Could not connect to site",
 }
-
-
-def setup_logging():
-    """Настраивает логирование: консоль + файл logs/wbm.log"""
-    os.makedirs("logs", exist_ok=True)
-
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-    root.addHandler(console)
-
-    file_handler = logging.FileHandler("logs/wbm.log", encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    root.addHandler(file_handler)
-
-
-def get_timeout():
-    raw = os.getenv("WBM_TIMEOUT", "5")
-    try:
-        return float(raw)
-    except ValueError:
-        raise ValueError(f"WBM_TIMEOUT must be a number, got: {raw!r}")
-
-
-def get_interval():
-    raw = os.getenv("WBM_INTERVAL")
-    if raw is None or raw == "":
-        return None
-    try:
-        value = float(raw)
-    except ValueError:
-        raise ValueError(f"WBM_INTERVAL must be a number, got: {raw!r}")
-    if value <= 0:
-        raise ValueError(f"WBM_INTERVAL must be positive, got: {value}")
-    return value
 
 
 def print_full_report(result):
