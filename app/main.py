@@ -12,7 +12,7 @@ from app.checker import check_site
 from app.scheduler import run_forever
 from app.state import StateTracker
 from app.notifier import TelegramNotifier
-
+from app.config import setup_logging, get_timeout, get_interval
 
 logger = logging.getLogger("app.main")
 
@@ -22,48 +22,6 @@ REASON_TEXT = {
     "TIMEOUT": "Connection timeout",
     "CONNECTION_ERROR": "Could not connect to site",
 }
-
-
-def setup_logging():
-    """Настраивает логирование: консоль + файл logs/wbm.log"""
-    os.makedirs("logs", exist_ok=True)
-
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-    root.addHandler(console)
-
-    file_handler = logging.FileHandler("logs/wbm.log", encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    root.addHandler(file_handler)
-
-
-def get_timeout():
-    raw = os.getenv("WBM_TIMEOUT", "5")
-    try:
-        return float(raw)
-    except ValueError:
-        raise ValueError(f"WBM_TIMEOUT must be a number, got: {raw!r}")
-
-
-def get_interval():
-    raw = os.getenv("WBM_INTERVAL")
-    if raw is None or raw == "":
-        return None
-    try:
-        value = float(raw)
-    except ValueError:
-        raise ValueError(f"WBM_INTERVAL must be a number, got: {raw!r}")
-    if value <= 0:
-        raise ValueError(f"WBM_INTERVAL must be positive, got: {value}")
-    return value
 
 
 def print_full_report(result):
@@ -100,6 +58,52 @@ def print_short_line(result):
         print(f"[{ts}] {status} {result['url']} ({result['reason']})")
 
 
+
+def format_alert_message(result):
+    """Форматирует сообщение о падении для Telegram."""
+    dt = datetime.fromisoformat(result["checked_at"])
+    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "🔴 Website DOWN",
+        "",
+        f"URL: {result['url']}",
+    ]
+
+    if result["status_code"] is not None:
+        lines.append(f"HTTP status: {result['status_code']}")
+
+    lines.append(f"Reason: {result['reason']}")
+    lines.append(f"Time: {time_str}")
+
+    return "\n".join(lines)
+
+
+def format_recovered_message(result):
+    """Форматирует сообщение о восстановлении для Telegram."""
+    from datetime import datetime
+
+    dt = datetime.fromisoformat(result["checked_at"])
+    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "🟢 Website RECOVERED",
+        "",
+        f"URL: {result['url']}",
+    ]
+
+    if result["status_code"] is not None:
+        lines.append(f"HTTP status: {result['status_code']}")
+
+    if result["response_time"] is not None:
+        lines.append(f"Response time: {result['response_time']:.2f} seconds")
+
+    lines.append(f"Time: {time_str}")
+
+    return "\n".join(lines)
+
+
+
 def make_check_callback(url, timeout, notifier, first_run=False):
     state = {"first": first_run}
     tracker = StateTracker()
@@ -121,25 +125,22 @@ def make_check_callback(url, timeout, notifier, first_run=False):
 
         if changed:
             if current == "DOWN":
-                msg = f"🔴 ALERT: {url} is DOWN (was {previous}) — {result['reason']}"
+                msg = format_alert_message(result)
                 logger.error(
-                    "TRANSITION %s -> %s: %s (reason: %s)",
-                    previous, current, url, result["reason"],
+                "TRANSITION %s -> %s: %s (reason: %s)",
+                previous, current, url, result["reason"],
                 )
-                print()
-                print(msg)
-                print()
-                await notifier.send(msg)
-            else:
-                msg = f"🟢 RECOVERED: {url} is UP (was {previous})"
-                logger.info("TRANSITION %s -> %s: %s", previous, current, url)
-                print()
-                print(msg)
-                print()
-                await notifier.send(msg)
+            print()
+            print(msg)
+            print()
+            await notifier.send(msg)
         else:
-            logger.debug("Site is UP: %s (%.2f s)", url, result["response_time"])
-            print_short_line(result)
+            msg = format_recovered_message(result)
+            logger.info("TRANSITION %s -> %s: %s", previous, current, url)
+            print()
+            print(msg)
+            print()
+        await notifier.send(msg)
 
     return callback
 
