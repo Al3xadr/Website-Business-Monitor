@@ -2,7 +2,7 @@ import sys
 import os
 import signal
 import logging
-import threading
+import asyncio
 
 from datetime import datetime
 
@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 from app.checker import check_site
 from app.scheduler import run_forever
 from app.state import StateTracker
-
+from app.notifier import TelegramNotifier
+from app.config import setup_logging, get_timeout, get_interval
 
 logger = logging.getLogger("app.main")
 
@@ -23,55 +24,7 @@ REASON_TEXT = {
 }
 
 
-def setup_logging():
-    """Настраивает логирование: консоль + файл logs/wbm.log"""
-    os.makedirs("logs", exist_ok=True)
-
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-    root.addHandler(console)
-
-    file_handler = logging.FileHandler("logs/wbm.log", encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    root.addHandler(file_handler)
-
-
-def get_timeout():
-    """Читает WBM_TIMEOUT из окружения. Возвращает float."""
-    raw = os.getenv("WBM_TIMEOUT", "5")
-    try:
-        return float(raw)
-    except ValueError:
-        raise ValueError(f"WBM_TIMEOUT must be a number, got: {raw!r}")
-
-
-def get_interval():
-    """
-    Читает WBM_INTERVAL из окружения.
-    Если не задан — возвращает None (одна проверка).
-    """
-    raw = os.getenv("WBM_INTERVAL")
-    if raw is None or raw == "":
-        return None
-    try:
-        value = float(raw)
-    except ValueError:
-        raise ValueError(f"WBM_INTERVAL must be a number, got: {raw!r}")
-    if value <= 0:
-        raise ValueError(f"WBM_INTERVAL must be positive, got: {value}")
-    return value
-
-
 def print_full_report(result):
-    """Полный отчёт для пользователя."""
     print("======================")
     print("     Website Business Monitor")
     print("======================")
@@ -96,7 +49,6 @@ def print_full_report(result):
 
 
 def print_short_line(result):
-    """Короткая строка для цикла мониторинга."""
     ts = datetime.now().strftime("%H:%M:%S")
     status = "UP  " if result["ok"] else "DOWN"
 
@@ -106,19 +58,58 @@ def print_short_line(result):
         print(f"[{ts}] {status} {result['url']} ({result['reason']})")
 
 
-def make_check_callback(url, timeout, first_run=False):
-    """
-    Возвращает callback для scheduler.
 
-    - Первая итерация: полный отчёт
-    - Смена состояния: событие 🔴 / 🟢
-    - Без изменений: тихая короткая строка
-    """
+def format_alert_message(result):
+    """Форматирует сообщение о падении для Telegram."""
+    dt = datetime.fromisoformat(result["checked_at"])
+    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "🔴 Website DOWN",
+        "",
+        f"URL: {result['url']}",
+    ]
+
+    if result["status_code"] is not None:
+        lines.append(f"HTTP status: {result['status_code']}")
+
+    lines.append(f"Reason: {result['reason']}")
+    lines.append(f"Time: {time_str}")
+
+    return "\n".join(lines)
+
+
+def format_recovered_message(result):
+    """Форматирует сообщение о восстановлении для Telegram."""
+    from datetime import datetime
+
+    dt = datetime.fromisoformat(result["checked_at"])
+    time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "🟢 Website RECOVERED",
+        "",
+        f"URL: {result['url']}",
+    ]
+
+    if result["status_code"] is not None:
+        lines.append(f"HTTP status: {result['status_code']}")
+
+    if result["response_time"] is not None:
+        lines.append(f"Response time: {result['response_time']:.2f} seconds")
+
+    lines.append(f"Time: {time_str}")
+
+    return "\n".join(lines)
+
+
+
+def make_check_callback(url, timeout, notifier, first_run=False):
     state = {"first": first_run}
     tracker = StateTracker()
 
-    def callback():
-        result = check_site(url, timeout=timeout)
+    async def callback():
+        result = await check_site(url, timeout=timeout)
         current = "UP" if result["ok"] else "DOWN"
 
         changed, previous = tracker.update(current)
@@ -134,29 +125,27 @@ def make_check_callback(url, timeout, first_run=False):
 
         if changed:
             if current == "DOWN":
+                msg = format_alert_message(result)
                 logger.error(
-                    "TRANSITION %s -> %s: %s (reason: %s)",
-                    previous, current, url, result["reason"],
+                "TRANSITION %s -> %s: %s (reason: %s)",
+                previous, current, url, result["reason"],
                 )
-                print()
-                print(f"🔴 ALERT: {url} is DOWN (was {previous}) — {result['reason']}")
-                print()
-            else:
-                logger.info(
-                    "TRANSITION %s -> %s: %s",
-                    previous, current, url,
-                )
-                print()
-                print(f"🟢 RECOVERED: {url} is UP (was {previous})")
-                print()
+            print()
+            print(msg)
+            print()
+            await notifier.send(msg)
         else:
-            logger.debug("Site is UP: %s (%.2f s)", url, result["response_time"])
-            print_short_line(result)
+            msg = format_recovered_message(result)
+            logger.info("TRANSITION %s -> %s: %s", previous, current, url)
+            print()
+            print(msg)
+            print()
+        await notifier.send(msg)
 
     return callback
 
 
-def main():
+async def main():
     load_dotenv()
 
     if len(sys.argv) < 2:
@@ -173,7 +162,7 @@ def main():
     if interval is None:
         # Режим «одна проверка»
         logger.info("Checking %s (timeout=%s)", url, timeout)
-        result = check_site(url, timeout=timeout)
+        result = await check_site(url, timeout=timeout)
 
         if result["ok"]:
             logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
@@ -184,28 +173,39 @@ def main():
         return
 
     # Режим мониторинга
-    logger.info("Starting monitor: %s (timeout=%s, interval=%s)",
-                url, timeout, interval)
+    logger.info(
+        "Starting monitor: %s (timeout=%s, interval=%s)",
+        url, timeout, interval,
+    )
 
-    stop_event = threading.Event()
+    notifier = TelegramNotifier()
 
-    def handle_signal(signum, frame):
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def handle_signal(signum, frame=None):
         sig_name = signal.Signals(signum).name
         print()
         logger.info("Received %s, stopping...", sig_name)
         stop_event.set()
 
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_signal, sig)
 
-    callback = make_check_callback(url, timeout, first_run=True)
+    callback = make_check_callback(url, timeout, notifier, first_run=True)
 
     try:
-        run_forever(callback, interval, stop_event=stop_event)
-    except KeyboardInterrupt:
-        logger.info("Interrupted")
+        await run_forever(callback, interval, stop_event=stop_event)
+    except asyncio.CancelledError:
+        logger.info("Cancelled")
         stop_event.set()
+    finally:
+        await notifier.close()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print()
+        print("Interrupted")
