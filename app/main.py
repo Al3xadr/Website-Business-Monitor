@@ -12,7 +12,10 @@ from app.checker import check_site
 from app.scheduler import run_forever
 from app.state import StateTracker
 from app.notifier import TelegramNotifier
-from app.config import setup_logging, get_timeout, get_interval
+from app.config import setup_logging, get_timeout, get_interval, get_db_config
+from app.db import Database
+
+
 
 logger = logging.getLogger("app.main")
 
@@ -81,7 +84,6 @@ def format_alert_message(result):
 
 def format_recovered_message(result):
     """Форматирует сообщение о восстановлении для Telegram."""
-    from datetime import datetime
 
     dt = datetime.fromisoformat(result["checked_at"])
     time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -104,13 +106,15 @@ def format_recovered_message(result):
 
 
 
-def make_check_callback(url, timeout, notifier, first_run=False):
+def make_check_callback(url, timeout, notifier, db, first_run=False):
     state = {"first": first_run}
     tracker = StateTracker()
 
     async def callback():
         result = await check_site(url, timeout=timeout)
         current = "UP" if result["ok"] else "DOWN"
+
+        await db.save_check(result)
 
         changed, previous = tracker.update(current)
 
@@ -127,23 +131,22 @@ def make_check_callback(url, timeout, notifier, first_run=False):
             if current == "DOWN":
                 msg = format_alert_message(result)
                 logger.error(
-                "TRANSITION %s -> %s: %s (reason: %s)",
-                previous, current, url, result["reason"],
+                    "TRANSITION %s -> %s: %s (reason: %s)",
+                    previous, current, url, result["reason"],
                 )
+            else:
+                msg = format_recovered_message(result)
+                logger.info("TRANSITION %s -> %s: %s", previous, current, url)
+
             print()
             print(msg)
             print()
             await notifier.send(msg)
         else:
-            msg = format_recovered_message(result)
-            logger.info("TRANSITION %s -> %s: %s", previous, current, url)
-            print()
-            print(msg)
-            print()
-        await notifier.send(msg)
+            logger.debug("Site is UP: %s (%.2f s)", url, result["response_time"])
+            print_short_line(result)
 
     return callback
-
 
 async def main():
     load_dotenv()
@@ -159,48 +162,57 @@ async def main():
     timeout = get_timeout()
     interval = get_interval()
 
-    if interval is None:
-        # Режим «одна проверка»
-        logger.info("Checking %s (timeout=%s)", url, timeout)
-        result = await check_site(url, timeout=timeout)
-
-        if result["ok"]:
-            logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
-        else:
-            logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
-
-        print_full_report(result)
-        return
-
-    # Режим мониторинга
-    logger.info(
-        "Starting monitor: %s (timeout=%s, interval=%s)",
-        url, timeout, interval,
-    )
-
-    notifier = TelegramNotifier()
-
-    stop_event = asyncio.Event()
-    loop = asyncio.get_running_loop()
-
-    def handle_signal(signum, frame=None):
-        sig_name = signal.Signals(signum).name
-        print()
-        logger.info("Received %s, stopping...", sig_name)
-        stop_event.set()
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, handle_signal, sig)
-
-    callback = make_check_callback(url, timeout, notifier, first_run=True)
+    # Подключаемся к БД (даже в режиме одной проверки — полезно)
+    db = Database(get_db_config())
+    await db.connect()
 
     try:
-        await run_forever(callback, interval, stop_event=stop_event)
-    except asyncio.CancelledError:
-        logger.info("Cancelled")
-        stop_event.set()
+        if interval is None:
+            # Режим «одна проверка»
+            logger.info("Checking %s (timeout=%s)", url, timeout)
+            result = await check_site(url, timeout=timeout)
+
+            await db.save_check(result)
+
+            if result["ok"]:
+                logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
+            else:
+                logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
+
+            print_full_report(result)
+            return
+
+        # Режим мониторинга
+        logger.info(
+            "Starting monitor: %s (timeout=%s, interval=%s)",
+            url, timeout, interval,
+        )
+
+        notifier = TelegramNotifier()
+
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def handle_signal(signum, frame=None):
+            sig_name = signal.Signals(signum).name
+            print()
+            logger.info("Received %s, stopping...", sig_name)
+            stop_event.set()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, handle_signal, sig)
+
+        callback = make_check_callback(url, timeout, notifier, db, first_run=True)
+
+        try:
+            await run_forever(callback, interval, stop_event=stop_event)
+        except asyncio.CancelledError:
+            logger.info("Cancelled")
+            stop_event.set()
+        finally:
+            await notifier.close()
     finally:
-        await notifier.close()
+        await db.close()
 
 
 if __name__ == "__main__":
