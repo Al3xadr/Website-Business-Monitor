@@ -1,0 +1,12 @@
+services:
+  wbm:
+    build: .
+    container_name: wbm
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - WBM_INTERVAL=10
+      - WBM_TIMEOUT=7
