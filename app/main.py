@@ -12,7 +12,6 @@ from app.checker import check_site
 from app.scheduler import run_forever
 from app.state import StateTracker
 from app.notifier import TelegramNotifier
-from app.config import setup_logging, get_timeout, get_interval
 from app.config import setup_logging, get_timeout, get_interval, get_db_config
 from app.db import Database
 
@@ -85,7 +84,6 @@ def format_alert_message(result):
 
 def format_recovered_message(result):
     """Форматирует сообщение о восстановлении для Telegram."""
-    from datetime import datetime
 
     dt = datetime.fromisoformat(result["checked_at"])
     time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")

@@ -1,7 +1,6 @@
 import pytest
 
-from app.config import get_interval, get_timeout
-
+from app.config import get_interval, get_timeout, get_db_config
 
 def test_get_timeout_default(monkeypatch):
     monkeypatch.delenv("WBM_TIMEOUT", raising=False)
@@ -50,3 +49,34 @@ def test_get_interval_zero(monkeypatch):
     monkeypatch.setenv("WBM_INTERVAL", "0")
     with pytest.raises(ValueError):
         get_interval()
+
+def test_get_db_config_defaults(monkeypatch):
+    monkeypatch.delenv("WBM_DB_HOST", raising=False)
+    monkeypatch.delenv("WBM_DB_PORT", raising=False)
+    monkeypatch.delenv("WBM_DB_NAME", raising=False)
+    monkeypatch.delenv("WBM_DB_USER", raising=False)
+    monkeypatch.delenv("WBM_DB_PASSWORD", raising=False)
+
+    cfg = get_db_config()
+
+    assert cfg["host"] == "localhost"
+    assert cfg["port"] == 5432
+    assert cfg["dbname"] == "wbm"
+    assert cfg["user"] == "wbm"
+    assert cfg["password"] == ""
+
+
+def test_get_db_config_custom(monkeypatch):
+    monkeypatch.setenv("WBM_DB_HOST", "db.example.com")
+    monkeypatch.setenv("WBM_DB_PORT", "5433")
+    monkeypatch.setenv("WBM_DB_NAME", "mydb")
+    monkeypatch.setenv("WBM_DB_USER", "alice")
+    monkeypatch.setenv("WBM_DB_PASSWORD", "secret")
+
+    cfg = get_db_config()
+
+    assert cfg["host"] == "db.example.com"
+    assert cfg["port"] == 5433          # int, не строка!
+    assert cfg["dbname"] == "mydb"
+    assert cfg["user"] == "alice"
+    assert cfg["password"] == "secret"
