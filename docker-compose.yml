@@ -10,3 +10,31 @@ services:
     environment:
       - WBM_INTERVAL=10
       - WBM_TIMEOUT=7
+      - WBM_DB_HOST=db
+      - WBM_DB_PORT=5432
+      - WBM_DB_NAME=wbm
+      - WBM_DB_USER=wbm
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: wbm-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=wbm
+      - POSTGRES_USER=wbm
+      - POSTGRES_PASSWORD=${WBM_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wbm -d wbm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
