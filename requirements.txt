@@ -4,3 +4,4 @@ python-dotenv
 aiohttp
 pytest-asyncio
 aiogram
+psycopg[binary,pool]
