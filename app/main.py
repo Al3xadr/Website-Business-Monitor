@@ -3,7 +3,7 @@ import os
 import signal
 import logging
 import asyncio
-
+from app.monitor import Monitor
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -151,94 +151,45 @@ def make_check_callback(url, timeout, notifier, db, site_id, first_run=False):
 async def main():
     load_dotenv()
 
-    if len(sys.argv) < 2:
-        print("Usage: python -m app.main <URL>")
-        sys.exit(1)
-
-    url = sys.argv[1]
-
     setup_logging()
 
     timeout = get_timeout()
     interval = get_interval()
 
-    # Подключаемся к БД
+    if interval is None:
+        logger.error("WBM_INTERVAL is required. WBM runs as a daemon now.")
+        print("Usage: set WBM_INTERVAL in .env (e.g. WBM_INTERVAL=60)")
+        return
+
     db = Database(get_db_config())
     await db.connect()
 
+    notifier = TelegramNotifier()
+    monitor = Monitor(db, notifier, timeout)
+
+    logger.info("Starting WBM monitor (timeout=%s, interval=%s)", timeout, interval)
+
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def handle_signal(signum, frame=None):
+        sig_name = signal.Signals(signum).name
+        print()
+        logger.info("Received %s, stopping...", sig_name)
+        stop_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_signal, sig)
+
     try:
-        # ─── ВРЕМЕННО (Sprint 9.1) ──────────────────────────────────
-        # Готовим user_id и site_id для текущего URL.
-        # В Sprint 9.4 этот блок будет удалён: URL и пользователи
-        # будут браться из БД, а не из sys.argv.
-        user_telegram_id = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
-        user_id = await db.get_or_create_user(user_telegram_id)
-
-        # Ищем существующий сайт с этим URL у этого пользователя
-        site_id = None
-        existing_sites = await db.list_sites(user_id)
-        for s in existing_sites:
-            if s["url"] == url:
-                site_id = s["id"]
-                break
-
-        # Если сайта нет — создаём
-        if site_id is None:
-            site_id = await db.add_site(user_id, url)
-            logger.info(
-                "Temporary site created: id=%s url=%s (user_id=%s)",
-                site_id, url, user_id,
-            )
-        # ────────────────────────────────────────────────────────────
-
-        if interval is None:
-            # Режим «одна проверка»
-            logger.info("Checking %s (timeout=%s)", url, timeout)
-            result = await check_site(url, timeout=timeout)
-
-            await db.save_check(site_id, result)   # ← site_id
-
-            if result["ok"]:
-                logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
-            else:
-                logger.error("Site is DOWN: %s (reason: %s)", url, result["reason"])
-
-            print_full_report(result)
-            return
-
-        # Режим мониторинга
-        logger.info(
-            "Starting monitor: %s (timeout=%s, interval=%s)",
-            url, timeout, interval,
-        )
-
-        notifier = TelegramNotifier()
-
-        stop_event = asyncio.Event()
-        loop = asyncio.get_running_loop()
-
-        def handle_signal(signum, frame=None):
-            sig_name = signal.Signals(signum).name
-            print()
-            logger.info("Received %s, stopping...", sig_name)
-            stop_event.set()
-
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, handle_signal, sig)
-
-        callback = make_check_callback(
-            url, timeout, notifier, db, site_id, first_run=True
-        )
-
-        try:
-            await run_forever(callback, interval, stop_event=stop_event)
-        except asyncio.CancelledError:
-            logger.info("Cancelled")
-            stop_event.set()
-        finally:
-            await notifier.close()
+        await run_forever(monitor.tick, interval, stop_event=stop_event)
+    except asyncio.CancelledError:
+        logger.info("Cancelled")
+        stop_event.set()
     finally:
+        await notifier.close()
         await db.close()
+
 
 if __name__ == "__main__":
     try:
