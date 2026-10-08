@@ -106,7 +106,7 @@ def format_recovered_message(result):
 
 
 
-def make_check_callback(url, timeout, notifier, db, first_run=False):
+def make_check_callback(url, timeout, notifier, db, site_id, first_run=False):
     state = {"first": first_run}
     tracker = StateTracker()
 
@@ -114,7 +114,7 @@ def make_check_callback(url, timeout, notifier, db, first_run=False):
         result = await check_site(url, timeout=timeout)
         current = "UP" if result["ok"] else "DOWN"
 
-        await db.save_check(result)
+        await db.save_check(site_id, result)   # ← site_id
 
         changed, previous = tracker.update(current)
 
@@ -162,17 +162,41 @@ async def main():
     timeout = get_timeout()
     interval = get_interval()
 
-    # Подключаемся к БД (даже в режиме одной проверки — полезно)
+    # Подключаемся к БД
     db = Database(get_db_config())
     await db.connect()
 
     try:
+        # ─── ВРЕМЕННО (Sprint 9.1) ──────────────────────────────────
+        # Готовим user_id и site_id для текущего URL.
+        # В Sprint 9.4 этот блок будет удалён: URL и пользователи
+        # будут браться из БД, а не из sys.argv.
+        user_telegram_id = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
+        user_id = await db.get_or_create_user(user_telegram_id)
+
+        # Ищем существующий сайт с этим URL у этого пользователя
+        site_id = None
+        existing_sites = await db.list_sites(user_id)
+        for s in existing_sites:
+            if s["url"] == url:
+                site_id = s["id"]
+                break
+
+        # Если сайта нет — создаём
+        if site_id is None:
+            site_id = await db.add_site(user_id, url)
+            logger.info(
+                "Temporary site created: id=%s url=%s (user_id=%s)",
+                site_id, url, user_id,
+            )
+        # ────────────────────────────────────────────────────────────
+
         if interval is None:
             # Режим «одна проверка»
             logger.info("Checking %s (timeout=%s)", url, timeout)
             result = await check_site(url, timeout=timeout)
 
-            await db.save_check(result)
+            await db.save_check(site_id, result)   # ← site_id
 
             if result["ok"]:
                 logger.info("Site is UP: %s (%.2f s)", url, result["response_time"])
@@ -202,7 +226,9 @@ async def main():
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, handle_signal, sig)
 
-        callback = make_check_callback(url, timeout, notifier, db, first_run=True)
+        callback = make_check_callback(
+            url, timeout, notifier, db, site_id, first_run=True
+        )
 
         try:
             await run_forever(callback, interval, stop_event=stop_event)
@@ -213,7 +239,6 @@ async def main():
             await notifier.close()
     finally:
         await db.close()
-
 
 if __name__ == "__main__":
     try:
