@@ -1,4 +1,4 @@
-from app.main import format_alert_message, format_recovered_message
+from app.messages import format_alert_message, format_recovered_message
 
 
 def test_format_alert_contains_url_and_reason():
